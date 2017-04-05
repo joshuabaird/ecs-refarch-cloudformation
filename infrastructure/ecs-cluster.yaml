@@ -96,6 +96,62 @@ Resources:
                 PauseTime: PT15M
                 WaitOnResourceSignals: true
         
+    ECSScaleOutPolicy:
+        Type: AWS::AutoScaling::ScalingPolicy
+        Properties:
+            AdjustmentType: PercentChangeInCapacity
+            PolicyType: StepScaling
+            StepAdjustments:
+                - ScalingAdjustment: 100
+                  MetricIntervalLowerBound: 0.0
+            AutoScalingGroupName:
+                Ref: ECSAutoScalingGroup
+
+    ECSScaleInPolicy:
+        Type: AWS::AutoScaling::ScalingPolicy
+        Properties:
+            AdjustmentType: PercentChangeInCapacity
+            PolicyType: StepScaling
+            StepAdjustments:
+                - ScalingAdjustment: -50
+                  MetricIntervalUpperBound: 0.0
+            AutoScalingGroupName:
+                Ref: ECSAutoScalingGroup
+
+    ECSClusterScaleOutAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+             ActionsEnabled: true
+             ComparisonOperator: GreaterThanOrEqualToThreshold
+             EvaluationPeriods: 1
+             MetricName: CPUReservation
+             Period: 300
+             Statistic: Average
+             Threshold: 60.0
+             Namespace: AWS/ECS
+             AlarmActions:
+                 - Ref: ECSScaleOutPolicy
+             Dimensions:
+                 - Name: ClusterName
+                   Value: !Ref EnvironmentName
+
+    ECSClusterScaleInAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            ActionsEnabled: true
+            ComparisonOperator: LessThanOrEqualToThreshold
+            EvaluationPeriods: 1
+            MetricName: CPUReservation
+            Period: 300
+            Statistic: Average
+            Threshold: 25.0
+            Namespace: AWS/ECS  
+            AlarmActions:
+                - Ref: ECSScaleInPolicy
+            Dimensions:
+                - Name: ClusterName
+                  Value: !Ref EnvironmentName
+      
     ECSLaunchConfiguration:
         Type: AWS::AutoScaling::LaunchConfiguration
         Properties:
