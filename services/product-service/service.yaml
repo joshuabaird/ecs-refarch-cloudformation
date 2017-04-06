@@ -56,7 +56,86 @@ Resources:
                     Options:
                         awslogs-group: !Ref AWS::StackName
                         awslogs-region: !Ref AWS::Region
-    
+
+    ECSServiceScalingPolicyTarget:
+        Type: AWS::ApplicationAutoScaling::ScalableTarget
+        DependsOn: Service
+        Properties:
+            MaxCapacity: 4
+            MinCapacity: 2
+            ResourceId: !Join ['', [service/, !Ref 'Cluster', /, !GetAtt [Service, Name]]]
+            RoleARN: !GetAtt [AutoscalingRole, Arn]
+            ScalableDimension: ecs:service:DesiredCount
+            ServiceNamespace: ecs
+
+    ECSServiceScaleOutPolicy:
+        Type: AWS::ApplicationAutoScaling::ScalingPolicy
+        Properties:
+            PolicyName: ECSServiceScaleOutPolicy
+            PolicyType: StepScaling
+            ScalingTargetId: !Ref 'ECSServiceScalingPolicyTarget'
+            StepScalingPolicyConfiguration:
+                AdjustmentType: PercentChangeInCapacity
+                Cooldown: 60
+                MetricAggregationType: Average
+                StepAdjustments:
+                    - MetricIntervalLowerBound: 0
+                      ScalingAdjustment: 200
+
+    ECSServiceScaleInPolicy:
+        Type: AWS::ApplicationAutoScaling::ScalingPolicy
+        Properties:
+            PolicyName: ECSServiceScaleInPolicy
+            PolicyType: StepScaling
+            ScalingTargetId: !Ref 'ECSServiceScalingPolicyTarget'
+            StepScalingPolicyConfiguration:
+                AdjustmentType: PercentChangeInCapacity
+                Cooldown: 60
+                MetricAggregationType: Average
+                StepAdjustments:
+                    - MetricIntervalLowerBound: 0
+                      ScalingAdjustment: -100
+
+    ECSServiceScaleOutAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            ActionsEnabled: true
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            EvaluationPeriods: '1'
+            MetricName: CPUUtilization
+            Namespace: AWS/ECS
+            Period: '300'
+            Statistic: Average
+            Threshold: '75.0'
+            Unit: Percent
+            AlarmActions:
+                - Ref: ECSServiceScaleOutPolicy
+            Dimensions:
+                - Name: ClusterName
+                  Value: !Ref Cluster
+                - Name: ServiceName
+                  Value: !GetAtt Service.Name
+           
+    ECSServiceScaleInAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            ActionsEnabled: true
+            ComparisonOperator: LessThanOrEqualToThreshold
+            EvaluationPeriods: '1'
+            MetricName: CPUUtilization
+            Namespace: AWS/ECS
+            Period: '300'
+            Statistic: Average
+            Threshold: '25.0'
+            Unit: Percent
+            AlarmActions:
+                - Ref: ECSServiceScaleInPolicy
+            Dimensions:
+                - Name: ClusterName
+                  Value: !Ref Cluster
+                - Name: ServiceName
+                  Value: !GetAtt Service.Name
+
     CloudWatchLogsGroup:
         Type: AWS::Logs::LogGroup
         Properties: 
@@ -89,6 +168,25 @@ Resources:
             Actions:
                 - TargetGroupArn: !Ref TargetGroup
                   Type: forward
+
+    # This IAM Role grants access to autoscaling.
+    AutoscalingRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service: [application-autoscaling.amazonaws.com]
+            Action: ['sts:AssumeRole']
+        Path: /
+        Policies:
+        - PolicyName: service-autoscaling
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action: ['application-autoscaling:*', 'cloudwatch:DescribeAlarms', 'cloudwatch:PutMetricAlarm', 'ecs:DescribeServices', 'ecs:UpdateService']
+              Resource: '*'
 
     # This IAM Role grants the service access to register/unregister with the 
     # Application Load Balancer (ALB). It is based on the default documented here:
